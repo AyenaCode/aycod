@@ -1,6 +1,8 @@
 # @ay-code/cli
 
-Guardrails around any AI coding agent (Claude Code, Codex CLI, Copilot CLI). aycod enforces the verdict of your formatter, linter, type checker, tests and secret scanner, and stops the agent from going around them.
+**Guardrails for agentic development: let AI agents write the code, and keep production safe.**
+
+Locally, aycod frames Claude Code, Codex CLI and Copilot CLI: every command and edit goes through a guard, and the agent cannot finish, commit or push while your checks fail. In CI, `aycod ci` gives the same verdict on every pull or merge request. It enforces the verdict of your formatter, linter, type checker, tests and security scanners, and stops the agent from going around them.
 
 This package installs the native aycod binary for your platform (Linux x64/arm64, macOS Apple silicon/Intel) through an optional dependency. No install script and no Node at run time: a 40-line `sh` launcher finds the binary and `exec`s it (about 3 ms per call).
 

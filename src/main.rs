@@ -11,7 +11,7 @@ use aycod::install;
 use aycod::{agents, config, githooks};
 
 const USAGE: &str = "\
-aycod — guardrails around any AI coding agent: the checks decide, not the agent.
+aycod — guardrails for agentic development: let AI agents write the code, and keep production safe.
 
 Owner commands:
   aycod init [--stack sveltekit|rust|go|generic] [--force]   write aycod.toml

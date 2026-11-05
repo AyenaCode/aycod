@@ -1,8 +1,15 @@
 # aycod
 
-Guardrails around any AI coding agent. **aycod does not judge code**: it enforces the verdict of tools that are already reliable (formatter, linter, type checker, tests, secret scanners), and it stops the agent from going around them.
+**Guardrails for agentic development: let AI agents write the code, and keep production safe.**
 
-One native binary (2.2 MB, fully static on Linux), no runtime, no service, no network. It works the same on a private or public project, with or without a remote, on GitHub, GitLab, anything else or nothing.
+AI coding agents (Claude Code, Codex, Copilot…) write code faster than anyone can review it. They also skip a failing test, add an `eslint-disable`, force-push, or read a `.env` when it gets them to "done". aycod puts a frame around them so that developers, and vibe coders, can trust what the agent ships:
+
+- **On your machine, while the agent works**, every command and every edit goes through a guard, and the agent cannot finish its turn, commit or push while the project's checks fail.
+- **In CI, on every pull or merge request**, the same binary runs the same checks and gives the same verdict, so nothing that slipped past a laptop reaches production.
+
+**aycod does not judge code itself.** It enforces the verdict of tools that are already reliable (formatter, linter, type checker, tests, security and secret scanners), runs them fast, and stops the agent from going around them.
+
+One native binary: 2.2 MB, fully static on Linux, no runtime, no service, no network, about 1 ms per agent action. It works the same on a private or public project, on GitHub, GitLab, anything else or no remote at all.
 
 ```bash
 curl -fsSL https://github.com/AyenaCode/aycod/releases/latest/download/install.sh | sh
@@ -11,6 +18,33 @@ aycod init --stack sveltekit  # writes aycod.toml: review the tasks
 aycod install                 # git hooks + agent hooks + AGENTS.md
 aycod doctor                  # what is really protected here
 ```
+
+```yaml
+# GitHub Actions (any CI works the same): on every PR, the same verdict as on the developer's machine
+- run: curl -fsSL https://github.com/AyenaCode/aycod/releases/latest/download/install.sh | sh && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+- run: aycod ci
+```
+
+## Frameworks, not just languages
+
+Code-quality platforms such as SonarQube analyse a language. An agent breaks production through its framework: a SvelteKit `load` that leaks a secret to the client, a Next.js server action without validation, an Expo build that no longer compiles for iOS. aycod aims to know each framework: which tools and rules give a trustworthy verdict, which files define the checks and must stay out of the agent's reach, and which commands an agent must never run.
+
+| Today (v0.1) | On the roadmap |
+|---|---|
+| SvelteKit, Rust, Go, and any project through `generic` with your own tasks | Next.js, Nuxt, full-stack monorepos, Expo / React Native, native Android, native iOS |
+
+## Status and roadmap
+
+**v0.1 is an early release.** The guard, the gate, the git hooks and `aycod ci` work and are tested end to end. The agent adapters are tested against payloads built from each agent's documentation, not yet in recorded real sessions (see [Agents](#agents-hook-formats-checked-against-the-official-docs-on-2026-10-28)).
+
+Towards a stable v1, in broad strokes (details will come with research):
+
+1. **Prove the frame**: scripted adversarial sessions with each agent, every bypass found added to the test corpus.
+2. **Framework packs**: curated checks, security scanners, protected files and guard rules for each framework above, set up by `aycod init`.
+3. **PR / MR scanning**: CI templates for GitHub Actions and GitLab CI, a readable report on the pull or merge request, usable as a required check.
+4. **Wider reach**: more agents, Windows, a stable configuration format and CLI.
+
+With v1, the goal is simple: install aycod in any supported framework project, let the AI code with confidence locally, and let the same tool scan every PR or MR before it reaches production.
 
 ## Install
 
@@ -176,9 +210,9 @@ Rust makes the hook fast; it does not make `tsc` or the tests faster. The gains 
 - **Parsing a shell perfectly is impossible.** The guard lowers the risk, it does not remove it: it refuses what it cannot resolve, but a script file written by the agent and then run (`bash scripts/x.sh`) is not inspected. Symlinks are not followed when matching paths. The integrity check and the git hooks are the next line; a CI (layer 4) is the only one that runs off the agent's machine.
 - The pre-commit hook checks the **working tree**, not only the staged changes (same as forge).
 - Reading secrets is blocked by name; a recursive `grep` over the project can still print a secret that is not ignored by git.
-- Linux and macOS only for now (Windows: phase 2).
+- Linux and macOS only for now (Windows is on the [roadmap](#status-and-roadmap)).
 - Departures from the plan: one crate instead of a Cargo workspace (the binary is the only product so far), no `clap` (a dozen commands parsed by hand, nothing to gain on startup or size), no `policy.bin` (measured unnecessary, see Performance).
-- Not in this MVP: `adopt` (upgrading forge projects automatically), `scan`, `protect`, CI templates, stack scaffolding with the official generators, the signed attestation.
+- Not in v0.1: framework packs beyond the stacks above, CI templates and PR / MR reports, `adopt` (upgrading forge projects automatically), stack scaffolding with the official generators.
 
 ## Development
 

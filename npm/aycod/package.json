@@ -1,7 +1,7 @@
 {
   "name": "@ay-code/cli",
   "version": "0.0.0",
-  "description": "Guardrails around any AI coding agent: the checks decide, not the agent. Native binary, no runtime.",
+  "description": "Guardrails for agentic development: let AI agents write the code, and keep production safe. Native binary, no runtime.",
   "keywords": [
     "ai",
     "agent",
