@@ -759,10 +759,11 @@ impl Run<'_> {
         }
         let refspecs = operands.get(1..).unwrap_or(&[]);
         let mut targets: Vec<(String, bool)> = Vec::new();
-        if refspecs.is_empty() && !tags_only {
-            if let Some(b) = self.p.current_branch() {
-                targets.push((b, delete));
-            }
+        if refspecs.is_empty()
+            && !tags_only
+            && let Some(b) = self.p.current_branch()
+        {
+            targets.push((b, delete));
         }
         for spec in refspecs {
             if spec.starts_with('+') {

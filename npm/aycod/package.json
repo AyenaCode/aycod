@@ -1,0 +1,43 @@
+{
+  "name": "@ay-code/cli",
+  "version": "0.0.0",
+  "description": "Guardrails around any AI coding agent: the checks decide, not the agent. Native binary, no runtime.",
+  "keywords": [
+    "ai",
+    "agent",
+    "guardrails",
+    "claude-code",
+    "codex",
+    "copilot",
+    "git-hooks"
+  ],
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AyenaCode/aycod.git",
+    "directory": "npm/aycod"
+  },
+  "homepage": "https://github.com/AyenaCode/aycod#readme",
+  "bugs": {
+    "url": "https://github.com/AyenaCode/aycod/issues"
+  },
+  "bin": {
+    "aycod": "bin/aycod"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
+  ],
+  "os": [
+    "linux",
+    "darwin"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

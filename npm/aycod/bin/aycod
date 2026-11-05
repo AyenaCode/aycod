@@ -1,0 +1,43 @@
+#!/bin/sh
+# Launcher of @ay-code/cli: finds the native binary installed by the platform package and
+# replaces itself with it (exec). No Node startup and no install script: about 2 ms per call,
+# with npm, pnpm, yarn or bun. Any failure exits 2, which the agents treat as "block".
+
+self=$0
+case $self in */*) ;; *) self=./$self ;; esac
+# Follow the bin symlink (npm, bun, yarn) back to this package; no `readlink -f` (old macOS).
+while [ -L "$self" ]; do
+  link=$(readlink "$self") || break
+  case $link in /*) self=$link ;; *) self=${self%/*}/$link ;; esac
+done
+pkg=${self%/*}/..
+
+case $(uname -sm) in
+  "Linux x86_64" | "Linux amd64") suffix=linux-x64 ;;
+  "Linux aarch64" | "Linux arm64") suffix=linux-arm64 ;;
+  "Darwin arm64") suffix=darwin-arm64 ;;
+  "Darwin x86_64") suffix=darwin-x64 ;;
+  *) suffix= ;;
+esac
+
+# Node's lookup: <dir>/node_modules/@ay-code/cli-<suffix>, from this package up to /.
+# Covers npm (nested or hoisted), pnpm (.pnpm/<pkg>/node_modules), yarn and bun.
+if [ -n "$suffix" ]; then
+  dir=$(cd "$pkg" 2>/dev/null && pwd -P) || dir=
+  while [ -n "$dir" ]; do
+    case $dir in
+      */node_modules) ;;
+      *)
+        bin=$dir/node_modules/@ay-code/cli-$suffix/bin/aycod
+        [ -x "$bin" ] && exec "$bin" "$@"
+        ;;
+    esac
+    dir=${dir%/*}
+  done
+fi
+
+if command -v node >/dev/null 2>&1; then
+  exec node "$pkg/lib/run.js" "$@"
+fi
+echo "aycod: native binary not found for $(uname -sm) and node is not available to look further" >&2
+exit 2

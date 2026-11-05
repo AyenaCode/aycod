@@ -2,15 +2,32 @@
 
 Guardrails around any AI coding agent. **aycod does not judge code**: it enforces the verdict of tools that are already reliable (formatter, linter, type checker, tests, secret scanners), and it stops the agent from going around them.
 
-One static binary (2.2 MB), no runtime, no service, no network. It works the same on a private or public project, with or without a remote, on GitHub, GitLab, anything else or nothing.
+One native binary (2.2 MB, fully static on Linux), no runtime, no service, no network. It works the same on a private or public project, with or without a remote, on GitHub, GitLab, anything else or nothing.
 
 ```bash
-cargo install --path .        # or: cargo build --release && cp target/release/aycod ~/.local/bin/
+curl -fsSL https://github.com/AyenaCode/aycod/releases/latest/download/install.sh | sh
 cd my-project
 aycod init --stack sveltekit  # writes aycod.toml: review the tasks
 aycod install                 # git hooks + agent hooks + AGENTS.md
 aycod doctor                  # what is really protected here
 ```
+
+## Install
+
+Linux (x86_64, aarch64: one static binary for every distribution, Alpine included) and macOS (Apple silicon, Intel). Windows: not yet.
+
+| Method | Command |
+|---|---|
+| Script (checks the SHA-256, installs to `~/.local/bin`) | `curl -fsSL https://github.com/AyenaCode/aycod/releases/latest/download/install.sh \| sh` |
+| npm (global) | `npm install -g @ay-code/cli` |
+| Archive | download `aycod-<target>.tar.gz` from the [releases](https://github.com/AyenaCode/aycod/releases), put `aycod` on your `PATH` |
+| From source (Rust ≥ 1.88) | `cargo install --locked --git https://github.com/AyenaCode/aycod` |
+
+The script takes `AYCOD_VERSION=v0.1.0` (default: latest) and `AYCOD_INSTALL_DIR` (default: `~/.local/bin`). To read it before running it: `curl -fsSLO https://github.com/AyenaCode/aycod/releases/latest/download/install.sh && less install.sh && sh install.sh`.
+
+**`aycod` must be on `PATH`**: the git hooks and the agent hooks call it by name, and fail closed (they block) when they cannot find it. With npm, install it globally on developer machines: git and the agents never look in `node_modules/.bin`, and the guard is safer outside the project the agent edits. `aycod install` and `aycod doctor` report a project-only install. As a dev dependency (`npm install -D @ay-code/cli`), it is still useful in CI (`npm ci && npx aycod ci`) and to pin the team's version. The npm package runs no install script and no Node at run time; its `sh` launcher `exec`s the binary (about 3 ms more per call).
+
+Each release archive and `install.sh` carries a signed build provenance attestation: `gh attestation verify aycod-<target>.tar.gz --repo AyenaCode/aycod` (see [SECURITY.md](SECURITY.md)).
 
 ## What it protects against
 
@@ -149,7 +166,8 @@ What made it fast, measured rather than assumed:
 - the cached check walks the tree sequentially (the parallel walker of `ignore` idles in 1 ms sleeps on small trees) and hashes in parallel only above 512 files;
 - the suppressions regex is compiled only when the cache misses;
 - `core.hooksPath` is read from `.git/config` directly, falling back to `git` only when the file uses `include`;
-- release profile: `lto = "fat"`, `codegen-units = 1`, `panic = "abort"`, `strip = true`, `opt-level = 3`. `opt-level = "s"` gives 1.73 MB for the same hook times, `"z"` 1.68 MB and a slower check; 3 is kept for hashing large trees.
+- release profile: `lto = "fat"`, `codegen-units = 1`, `panic = "abort"`, `strip = true`, `opt-level = 3`. `opt-level = "s"` gives 1.73 MB for the same hook times, `"z"` 1.68 MB and a slower check; 3 is kept for hashing large trees;
+- the Linux releases are static musl binaries: no dynamic loader, so a hook starts in about 0.8 ms instead of 1.5 ms with glibc. musl's allocator takes a global lock, which first made the cached check on a 6000-file tree 5× slower (138 ms against 26 ms); each hashing worker now reuses one read buffer and one path, which brought it to about 30 ms with no C allocator to link (measured 2026-11-05, same machine).
 
 Rust makes the hook fast; it does not make `tsc` or the tests faster. The gains on the checks come from the cache and the parallelism.
 
@@ -171,6 +189,21 @@ cargo build --release
 scripts/bench.py target/release/aycod <green project> 300   # exits 1 if a budget is exceeded
 ```
 
+### Releasing
+
+1. Bump `version` in `Cargo.toml` (the npm packages take it from there), commit, push to `main`, wait for CI.
+2. `git tag v0.2.0 && git push origin v0.2.0`. The [release workflow](.github/workflows/release.yml) checks that the tag matches `Cargo.toml`, tests and builds the four targets, writes `SHA256SUMS`, attests the artifacts, publishes the GitHub release (with `install.sh`), then stages the five npm packages.
+3. On npmjs.com → *Staged Packages*, approve with 2FA: the four `@ay-code/cli-<platform>` first, `@ay-code/cli` last.
+
+| Target | Runner | npm package |
+|---|---|---|
+| `x86_64-unknown-linux-musl` | `ubuntu-24.04` | `@ay-code/cli-linux-x64` |
+| `aarch64-unknown-linux-musl` | `ubuntu-24.04-arm` | `@ay-code/cli-linux-arm64` |
+| `aarch64-apple-darwin` | `macos-15` | `@ay-code/cli-darwin-arm64` |
+| `x86_64-apple-darwin` | `macos-15` (cross-compiled, not run) | `@ay-code/cli-darwin-x64` |
+
+npm trusted publishing (OIDC) needs each package to exist before it can trust the workflow, so the very first version is published by hand once: download the release archives into `dist/`, run `node npm/build.mjs dist npm-out`, then `npm publish` in each `npm-out/aycod-*` and finally in `npm-out/aycod`. Then, for each of the five packages: `npm trust github <package> --file release.yml --repo AyenaCode/aycod --allow-publish`.
+
 The end-to-end tests run the real binary: the three agent formats, fail-closed on panic and bad input, the gate and its cache, suppressions, integrity and tampering, idempotent install that keeps foreign Claude settings, and the 19 pre-push scenarios of forge against a local bare repository (plus a refused commit), and the project directory winning over a shell `cwd` outside the project.
 
 | File | Role |
@@ -182,3 +215,6 @@ The end-to-end tests run the real binary: the three agent formats, fail-closed o
 | `src/githooks.rs` | `pre-commit`, `pre-push` |
 | `src/install.rs` | `init`, `install`, `doctor` |
 | `src/config.rs` | `aycod.toml` |
+| `install.sh` | One-line installer: picks the target, checks the SHA-256 |
+| `npm/` | The npm packages: `sh` launcher, platform table, `build.mjs` (from the release archives) |
+| `.github/workflows/` | `ci.yml` (every push and PR), `release.yml` (on a `v*` tag) |

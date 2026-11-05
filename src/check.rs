@@ -110,23 +110,36 @@ pub fn snapshot(root: &Path, config: &Config) -> Snapshot {
         paths.push((rel, ft.is_symlink()));
     }
     paths.sort_unstable_by(|a, b| a.0.cmp(&b.0));
-    let hash = |(rel, link): &(String, bool)| {
-        let path = root.join(rel);
-        let bytes = if *link {
-            fs::read_link(&path).map(|t| t.to_string_lossy().into_owned().into_bytes()).unwrap_or_default()
-        } else {
-            fs::read(&path).unwrap_or_default()
-        };
-        blake3::hash(&bytes)
+    // One read buffer and one path per worker instead of allocations per file: musl's allocator
+    // takes a global lock, and on a 6000-file tree the per-file `fs::read` made the cached check
+    // 5x slower than with glibc. `clone_from` keeps the path's capacity.
+    let base = root.to_path_buf();
+    let hash_part = |part: &[(String, bool)]| {
+        let mut buf = Vec::with_capacity(64 * 1024);
+        let mut path = PathBuf::with_capacity(base.as_os_str().len() + 256);
+        part.iter()
+            .map(|(rel, link)| {
+                path.clone_from(&base);
+                path.push(rel);
+                buf.clear();
+                if *link {
+                    if let Ok(t) = fs::read_link(&path) {
+                        buf.extend_from_slice(t.as_os_str().as_encoded_bytes());
+                    }
+                } else if File::open(&path).and_then(|mut f| f.read_to_end(&mut buf)).is_err() {
+                    buf.clear();
+                }
+                blake3::hash(&buf)
+            })
+            .collect::<Vec<_>>()
     };
     let hashes: Vec<blake3::Hash> = if paths.len() < PARALLEL_FROM {
-        paths.iter().map(hash).collect()
+        hash_part(&paths)
     } else {
         let threads = std::thread::available_parallelism().map_or(4, std::num::NonZero::get);
         let chunk = paths.len().div_ceil(threads);
         std::thread::scope(|s| {
-            let workers: Vec<_> =
-                paths.chunks(chunk).map(|part| s.spawn(move || part.iter().map(hash).collect::<Vec<_>>())).collect();
+            let workers: Vec<_> = paths.chunks(chunk).map(|part| s.spawn(move || hash_part(part))).collect();
             workers.into_iter().flat_map(|w| w.join().unwrap_or_default()).collect()
         })
     };

@@ -269,6 +269,25 @@ fn install_keeps_foreign_claude_settings() {
     assert_eq!(s.matches("aycod hook claude pre-tool").count(), 1, "idempotent");
 }
 
+#[test]
+fn a_project_only_npm_install_is_reported() {
+    let dir = project(true);
+    let bin_dir = dir.join("node_modules/.bin");
+    std::fs::create_dir_all(&bin_dir).unwrap();
+    std::fs::copy(BIN, bin_dir.join("aycod")).unwrap();
+    // As under `npx aycod install`: node_modules/.bin is on PATH, but git and the agents never see it.
+    let path = format!("{}:/usr/bin:/bin", bin_dir.display());
+    let o = aycod_env(&dir, &["install", "--agent", "claude"], "", &[("PATH", &path)]);
+    assert_eq!(o.status.code(), Some(0), "{}", text(&o));
+    assert!(text(&o).contains("only installed in this project"), "{}", text(&o));
+    assert!(text(&o).contains("npm install -g @ay-code/cli"), "{}", text(&o));
+    let doctor = aycod_env(&dir, &["doctor"], "", &[("PATH", &path)]);
+    assert_eq!(doctor.status.code(), Some(1));
+    assert!(text(&doctor).contains("✗ aycod is only installed in this project"), "{}", text(&doctor));
+    // A global aycod (here: the one under test) satisfies both.
+    assert!(!text(&aycod(&dir, &["doctor"], "")).contains("only installed in this project"));
+}
+
 // ---------- git hooks (port of forge's 19 pre-push scenarios) ----------
 
 #[test]

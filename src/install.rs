@@ -173,6 +173,29 @@ pub fn on_path(bin: &str) -> Option<PathBuf> {
     std::env::split_paths(&path).map(|d| d.join(bin)).find(|p| p.is_file())
 }
 
+const GLOBAL_INSTALL: &str = "install it globally: `npm install -g @ay-code/cli`, or \
+`curl -fsSL https://github.com/AyenaCode/aycod/releases/latest/download/install.sh | sh`";
+
+/// Why the hooks will not find `aycod`, if they will not. `npx aycod` and npm scripts put
+/// `node_modules/.bin` on PATH, but git and the agents never do: those entries do not count.
+fn path_problem(root: &Path) -> Option<String> {
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let global =
+        std::env::split_paths(&path).filter(|d| !d.ends_with("node_modules/.bin")).any(|d| d.join("aycod").is_file());
+    if global {
+        return None;
+    }
+    Some(if root.join("node_modules/.bin/aycod").is_file() {
+        format!(
+            "aycod is only installed in this project (node_modules/.bin): git and the agents call `aycod` \
+             from PATH and never look there, so the hooks fail (closed) and block every commit; {GLOBAL_INSTALL}. \
+             The project copy stays useful in CI (`npx aycod ci`) and to pin the version"
+        )
+    } else {
+        format!("aycod is not on PATH: the hooks call `aycod`, so they fail (closed) until it is; {GLOBAL_INSTALL}")
+    })
+}
+
 fn write(root: &Path, rel: &str, text: &str) -> Result<(), String> {
     let path = root.join(rel);
     if let Some(dir) = path.parent() {
@@ -414,8 +437,8 @@ pub fn install(start: &Path, only: &[Agent]) -> Result<(), String> {
         fs::write(&claude_md, format!("{text}{sep}@AGENTS.md\n")).map_err(|e| format!("CLAUDE.md: {e}"))?;
     }
     println!("✓ AGENTS.md: rules and what is enforced");
-    if on_path("aycod").is_none() {
-        println!("! aycod is not on PATH: the hooks call `aycod`, so they will fail (closed) until it is");
+    if let Some(problem) = path_problem(root) {
+        println!("! {problem}");
     }
     if !project.config.tasks.is_empty() {
         let missing: Vec<String> = project
@@ -462,7 +485,10 @@ pub fn doctor(start: &Path) -> i32 {
         project.configured,
         format!("config: {}", if project.configured { "aycod.toml" } else { "no aycod.toml (`aycod init`)" }),
     );
-    line(on_path("aycod").is_some(), "aycod on PATH (the hooks call it)".into());
+    match path_problem(root) {
+        None => line(true, "aycod on PATH (the hooks call it)".into()),
+        Some(problem) => line(false, problem),
+    }
     let agents_md = fs::read_to_string(root.join("AGENTS.md")).unwrap_or_default();
     line(agents_md.contains(BEGIN), "layer 1 — instructions: AGENTS.md block".into());
     for k in Agent::ALL {

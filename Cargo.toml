@@ -2,9 +2,21 @@
 name = "aycod"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 description = "Guardrails around any AI coding agent: the checks decide, not the agent."
-publish = false
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/AyenaCode/aycod"
+homepage = "https://github.com/AyenaCode/aycod"
+readme = "README.md"
+keywords = ["ai", "agent", "guardrails", "git-hooks", "claude"]
+categories = ["command-line-utilities", "development-tools"]
+include = ["/src/**", "/tests/**", "/Cargo.toml", "/Cargo.lock", "/README.md", "/LICENSE-MIT", "/LICENSE-APACHE"]
+
+# `cargo binstall aycod`: the archives the release workflow attaches to each GitHub release.
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }.tar.gz"
+bin-dir = "{ name }-{ target }/{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
 
 [dependencies]
 blake3 = { version = "1.8.7", default-features = false, features = ["std"] }

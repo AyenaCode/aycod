@@ -1,0 +1,171 @@
+# Push a tag vX.Y.Z (equal to the version in Cargo.toml) →
+#   1. build:   4 optimised binaries, tested on their own CPU (Linux static musl, macOS)
+#   2. release: SHA256SUMS + build provenance attestation, GitHub release (draft, assets, publish)
+#   3. npm:     @ay-code/cli-<platform> then @ay-code/cli, staged on npm (OIDC, no token);
+#               approve them on npmjs.com → Staged Packages (2FA), platform packages first.
+name: release
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-musl, os: ubuntu-24.04, native: true }
+          - { target: aarch64-unknown-linux-musl, os: ubuntu-24.04-arm, native: true }
+          - { target: aarch64-apple-darwin, os: macos-15, native: true }
+          # Cross-compiled on Apple silicon: Intel runners are being retired.
+          - { target: x86_64-apple-darwin, os: macos-15, native: false }
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Tag matches Cargo.toml
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
+          [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME but Cargo.toml says $version"; exit 1; }
+
+      - run: rustup toolchain install --profile minimal --target ${{ matrix.target }}
+
+      - name: Test
+        if: matrix.native
+        run: cargo test --locked --target ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Check the binary
+        run: |
+          bin=target/${{ matrix.target }}/release/aycod
+          case "${{ matrix.target }}" in
+            *-linux-musl) out=$(file "$bin"); echo "$out"; case "$out" in *static*) ;; *) exit 1 ;; esac ;;
+            x86_64-apple-darwin) [ "$(lipo -archs "$bin")" = x86_64 ] ;;
+          esac
+          if [ "${{ matrix.native }}" = true ]; then
+            [ "$("$bin" --version)" = "aycod ${GITHUB_REF_NAME#v}" ]
+          fi
+          ls -l "$bin"
+
+      - name: Package
+        run: |
+          name=aycod-${{ matrix.target }}
+          mkdir "$name"
+          cp target/${{ matrix.target }}/release/aycod README.md LICENSE-MIT LICENSE-APACHE "$name/"
+          tar -czf "$name.tar.gz" "$name"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: aycod-${{ matrix.target }}
+          path: aycod-${{ matrix.target }}.tar.gz
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write # create the release
+      id-token: write # sign the attestation
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: aycod-*
+          merge-multiple: true
+          path: dist
+
+      - name: Checksums and install script
+        run: |
+          cp install.sh dist/
+          cd dist
+          sha256sum aycod-*.tar.gz install.sh > SHA256SUMS
+          cat SHA256SUMS
+
+      # Signed SLSA provenance: `gh attestation verify <file> --repo AyenaCode/aycod`.
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            dist/aycod-*.tar.gz
+            dist/install.sh
+
+      # Draft first, assets, then publish: compatible with immutable releases.
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          tag=$GITHUB_REF_NAME
+          prerelease=
+          case "$tag" in *-*) prerelease=--prerelease ;; esac
+          gh release create "$tag" --draft --verify-tag --generate-notes --title "aycod $tag" $prerelease dist/*
+          gh release edit "$tag" --draft=false
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: dist
+          if-no-files-found: error
+
+  npm:
+    needs: release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write # npm trusted publishing (OIDC): no token in the repository
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      # `npm stage publish` needs npm >= 11.15.
+      - run: npm install -g npm@12 && npm --version
+
+      - run: node npm/build.mjs dist npm-out
+
+      # Platform packages first: the launcher depends on them. A version already on npm is skipped,
+      # so the job can be re-run.
+      - name: Stage on npm
+        run: |
+          for dir in npm-out/aycod-* npm-out/aycod; do
+            name=$(node -p "require('./$dir/package.json').name")
+            version=$(node -p "require('./$dir/package.json').version")
+            if [ -n "$(npm view "$name@$version" version 2>/dev/null)" ]; then
+              echo "$name@$version already on npm"
+              continue
+            fi
+            tag=
+            case "$version" in *-*) tag="--tag next" ;; esac
+            (cd "$dir" && npm stage publish $tag)
+          done
