@@ -42,7 +42,8 @@ jobs:
           version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
           [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME but Cargo.toml says $version"; exit 1; }
 
-      - run: rustup toolchain install --profile minimal --target ${{ matrix.target }}
+      # `--target` is ignored when the toolchain comes from rust-toolchain.toml: add it separately.
+      - run: rustup toolchain install --profile minimal && rustup target add ${{ matrix.target }}
 
       - name: Test
         if: matrix.native
