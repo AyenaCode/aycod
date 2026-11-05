@@ -44,6 +44,12 @@ jobs:
 
       # `--target` is ignored when the toolchain comes from rust-toolchain.toml: add it separately.
       - run: rustup toolchain install --profile minimal && rustup target add ${{ matrix.target }}
+      # blake3 compiles C (NEON on aarch64, AVX-512 on x86_64): give it musl's C compiler.
+      - name: musl C compiler
+        if: endsWith(matrix.target, '-linux-musl')
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q musl-tools
+          echo "CC_$(echo '${{ matrix.target }}' | tr - _)=musl-gcc" >> "$GITHUB_ENV"
 
       - name: Test
         if: matrix.native
