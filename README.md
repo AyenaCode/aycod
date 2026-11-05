@@ -2,6 +2,8 @@
 
 **Guardrails for agentic development: let AI agents write the code, and keep production safe.**
 
+Website: https://ayenacode.github.io/aycod/
+
 AI coding agents (Claude Code, Codex, Copilot…) write code faster than anyone can review it. They also skip a failing test, add an `eslint-disable`, force-push, or read a `.env` when it gets them to "done". aycod puts a frame around them so that developers, and vibe coders, can trust what the agent ships:
 
 - **On your machine, while the agent works**, every command and every edit goes through a guard, and the agent cannot finish its turn, commit or push while the project's checks fail.
@@ -251,4 +253,5 @@ The end-to-end tests run the real binary: the three agent formats, fail-closed o
 | `src/config.rs` | `aycod.toml` |
 | `install.sh` | One-line installer: picks the target, checks the SHA-256 |
 | `npm/` | The npm packages: `sh` launcher, platform table, `build.mjs` (from the release archives) |
-| `.github/workflows/` | `ci.yml` (every push and PR), `release.yml` (on a `v*` tag) |
+| `.github/workflows/` | `ci.yml` (every push and PR), `release.yml` (on a `v*` tag), `pages.yml` (the website) |
+| `site/` | The landing page, one static HTML file published to GitHub Pages |
